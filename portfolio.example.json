@@ -1,0 +1,14 @@
+{
+  "bankroll": 300.0,
+  "cash": 300.0,
+  "positions": [],
+  "closed_trades": [],
+  "total_pnl": 0.0,
+  "goal": 1000.0,
+  "start_date": "2026-02-27",
+  "wallet": "0xYOUR_POLYMARKET_WALLET_ADDRESS",
+  "polymarket_fee": 0.02,
+  "day1_deploy": false,
+  "daily_budget": 100.0,
+  "notes": "Copy this to polymarket_portfolio.json and set your wallet address."
+}
