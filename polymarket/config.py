@@ -51,19 +51,19 @@ TOPIC_KEYWORDS = {
                  "playoff","world cup","league"],
 }
 
-TOPIC_PRIORITY = ["crypto", "tech", "politics", "macro", "culture"]
+TOPIC_PRIORITY = ["crypto", "tech", "politics", "macro", "culture", "sports"]
 
 # ── Sports / Junk market skip keywords ────────────────────────────────────────
 SKIP_KEYWORDS = [
-    "nba","nfl","nhl","mlb","dota","cs2","wta ","atp "," vs. "," vs ",
-    "hornets","lakers","celtics","pacers","bulls","knicks","warriors","nets",
-    "heat","bucks","sixers","blazers","hawks","nuggets","clippers","suns",
-    "mavericks","spurs","grizzlies","wolves","pelicans","jazz","thunder",
-    "rockets","cavs","pistons","raptors","magic","wizards",
-    "game 1","game 2","game 3","set 1","set 2","map 1","map 2",
+    # Pure noise: prop bets, spreads, over/unders — no edge for us
     "spread:","o/u","assists","rebounds","points o/u","3-pointers",
-    "t20","odi","icc ","cricket",
+    "map 1","map 2","set 1","set 2",
+    # Individual game score precision bets
+    "by more than","by less than","first to score",
+    "win by","lose by",
 ]
+# NOTE: Sports OUTCOME markets (championship, tournament winner, etc.) are allowed.
+# Do not skip by team name — a team winning a championship is a valid market.
 
 # ── Topic Emojis ───────────────────────────────────────────────────────────────
 TOPIC_EMOJI = {
