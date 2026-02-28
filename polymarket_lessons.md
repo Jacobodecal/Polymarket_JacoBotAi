@@ -52,6 +52,48 @@
 
 ---
 
+---
+
+## Strategic Research Learnings (Feb 28, 2026)
+
+### 📚 From prediction market theory (LessWrong, Astral Codex, Gwern)
+
+**1. Only large markets are reliable priors**
+- Markets with <$50K volume can be moved by a single motivated bettor for cheap
+- High-volume markets (>$500K) efficiently aggregate real information
+- For small markets: our analysis can BEAT the market price. For large markets: respect the price.
+
+**2. Sharp money signal (v24/liq ratio)**
+- When daily volume is high relative to total liquidity, informed bettors are actively trading
+- v24/liq > 0.8 = "sharps are here" → follow the direction of recent price movement
+- v24/liq < 0.1 = stale market → current price may be outdated
+- **Implemented:** New `sharp_money_signal()` in scorer.py with bonus up to +18 pts
+
+**3. Conditional markets are unreliable**
+- "Will X happen IF Y happens?" markets have weak incentives — losers pay fees when resolved N/A
+- Avoid multi-branch conditional markets where half the outcomes are N/A
+- Prefer clean YES/NO markets with clear, unconditional resolution criteria
+
+**4. Near-term high-confidence combo**
+- Short time left (<24h) + high probability (>75%) + active trading = highest risk-adjusted edge
+- This is the Jacobo Feb 27 Iran play — correct logic, just miscalculated the clock
+- **Implemented:** +15 bonus for days<=1, entry>=0.75, sharp>=0.3 combo
+
+**5. Momentum + recency signal**
+- 7-day change is signal, but 24h change is stronger for near-term bets
+- If 24h price is moving opposite to our bet direction: investigate before entering
+- **Implemented:** `oneDayPriceChange` now factored in scoring (+3 to +12)
+
+**6. Correlation risk = the Jacobo Iran problem**
+- Betting both "Israel NO" and "US NO Iran" = same underlying event = double exposure
+- If Israel strikes Iran, BOTH bets lose. True diversification means different underlying events.
+- **Implemented:** `_correlation_key()` detects same-event bets, warns with ⚠️ in output
+
+**7. Sizing discipline: Kelly-inspired**
+- Flat % sizing per conviction tier is too simplistic
+- Better: size = f(edge, confidence, correlation) — don't bet 20% on a LOCK if it's correlated with another pick
+- TODO: Implement fractional Kelly when we have calibrated win rates
+
 ## Algorithm Improvement Roadmap
 
 ### PRIORITY 1 — Pre-bet checklist (implement before next morning run)

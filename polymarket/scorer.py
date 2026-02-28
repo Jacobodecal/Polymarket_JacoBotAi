@@ -63,6 +63,17 @@ def pick_side(yes_p: float, chg: float) -> tuple[str, float]:
     return "NO", 1 - yes_p
 
 
+def sharp_money_signal(v24: float, liq: float) -> float:
+    """
+    Detect 'sharp money' — when volume is high relative to liquidity,
+    it means informed bettors are actively pricing this market.
+    ratio > 0.5 = whales are moving; > 1.0 = very active trading.
+    """
+    if liq <= 0:
+        return 0.0
+    return v24 / liq
+
+
 def score_market(m: dict) -> float:
     """
     Score a market for betting opportunity.
@@ -74,15 +85,18 @@ def score_market(m: dict) -> float:
       2. Liquidity (can we enter/exit cleanly?)
       3. Volume (market health, price reliability)
       4. Momentum (7-day price change — strongest alpha signal)
-      5. Resolution type (penalize precision bets)
-      6. Spread cost
-      7. Time horizon
+      5. Sharp money ratio (v24/liq — informed activity signal)
+      6. Resolution type (penalize precision bets)
+      7. Spread cost
+      8. Time horizon
+      9. Near-term high-confidence combo bonus
     """
     yes_p, no_p = get_prices(m)
     v24    = float(m.get("volume24hr") or 0)
     liq    = float(m.get("liquidityNum") or m.get("liquidity") or 0)
     spread = float(m.get("spread") or 0.5)
     chg    = float(m.get("oneWeekPriceChange") or 0)
+    chg1d  = float(m.get("oneDayPriceChange") or 0)  # 24h momentum
     end    = m.get("endDateIso", "")[:10]
     desc   = m.get("description", "") or ""
 
@@ -122,12 +136,26 @@ def score_market(m: dict) -> float:
     elif spread < 0.05: score += 3
     elif spread > 0.05: score -= 10
 
-    # ── Momentum (strongest alpha signal) ────────────────────────────────────
+    # ── Momentum — 7-day (primary alpha signal) ───────────────────────────────
     abs_chg = abs(chg)
     if abs_chg >= 0.30:   score += 28
     elif abs_chg >= 0.15: score += 20
     elif abs_chg >= 0.08: score += 12
     elif abs_chg >= 0.03: score += 6
+
+    # ── Momentum — 24h (recency signal, weighted more for short-horizon bets) ─
+    abs_chg1d = abs(chg1d)
+    if abs_chg1d >= 0.15:  score += 12
+    elif abs_chg1d >= 0.08: score += 7
+    elif abs_chg1d >= 0.03: score += 3
+
+    # ── Sharp money ratio (v24 / liq) ─────────────────────────────────────────
+    # High ratio = informed bettors actively moving this market → follow the liquidity
+    sharp = sharp_money_signal(v24, liq)
+    if sharp >= 1.5:   score += 18   # very active — whales are trading this
+    elif sharp >= 0.8: score += 12
+    elif sharp >= 0.4: score += 7
+    elif sharp >= 0.2: score += 3
 
     # ── Return potential (balanced) ───────────────────────────────────────────
     if 30 <= return_pct <= 80:    score += 15
@@ -143,6 +171,7 @@ def score_market(m: dict) -> float:
     elif topic == "culture":                     score += 4
 
     # ── Time horizon ──────────────────────────────────────────────────────────
+    days = None
     try:
         s = end + "T23:59:00+00:00" if "T" not in end else end.replace("Z", "+00:00")
         end_dt = datetime.fromisoformat(s)
@@ -156,6 +185,12 @@ def score_market(m: dict) -> float:
     except Exception:
         pass
 
+    # ── Near-term high-confidence combo bonus ─────────────────────────────────
+    # Short time + high probability + active trading = lower risk, solid return
+    # This is the "1 hour till deadline" type of edge Jacobo identified
+    if days is not None and days <= 1 and entry >= 0.75 and sharp >= 0.3:
+        score += 15  # safe near-certain near-term bet
+
     # ── Resolution type penalty (Day 1 lesson) ────────────────────────────────
     res_type = classify_resolution(desc, m.get("endDateIso", ""))
     score += RESOLUTION_PENALTIES.get(res_type, 0)
@@ -163,10 +198,30 @@ def score_market(m: dict) -> float:
     return score
 
 
+def _correlation_key(q: str) -> str:
+    """
+    Extract a 'event cluster' key from a market question.
+    Markets with same key are correlated bets — flag for concentration risk.
+    """
+    ql = q.lower()
+    for cluster, keywords in [
+        ("iran", ["iran"]),
+        ("ukraine", ["ukraine", "zelensky", "russia", "ceasefire"]),
+        ("btc_range", ["bitcoin", "btc", "dip to", "range"]),
+        ("tx_senate", ["texas", "senate", "crockett", "talarico", "cornyn", "paxton"]),
+        ("trump", ["trump", "executive order", "doge", "maga"]),
+        ("fed", ["fed", "interest rate", "fomc", "powell"]),
+    ]:
+        if any(kw in ql for kw in keywords):
+            return cluster
+    return q[:30]  # fallback: first 30 chars = usually unique enough
+
+
 def build_picks(markets: list[dict], daily_budget: float, n: int = 10) -> list[dict]:
     """
     Score, filter, and size picks from a list of markets.
     Returns top-n picks with all computed fields.
+    Includes correlation detection: flags picks betting on same underlying event.
     """
     scored = []
     for m in markets:
@@ -183,6 +238,12 @@ def build_picks(markets: list[dict], daily_budget: float, n: int = 10) -> list[d
     scored.sort(key=lambda x: -x[0])
     top = scored[:n]
 
+    # Detect correlation clusters
+    cluster_counts: dict[str, int] = {}
+    for _, m, _ in top:
+        key = _correlation_key(m.get("question", ""))
+        cluster_counts[key] = cluster_counts.get(key, 0) + 1
+
     # Compute sides and raw sizes
     picks = []
     for score, m, topic in top:
@@ -197,11 +258,17 @@ def build_picks(markets: list[dict], daily_budget: float, n: int = 10) -> list[d
         tier = conviction_tier(yes_p, side)
         raw_size = daily_budget * SIZING.get(tier, 0.10)
 
+        chg1d    = float(m.get("oneDayPriceChange") or 0)
+        sharp    = sharp_money_signal(v24, liq)
+        cor_key  = _correlation_key(q)
+        cor_flag = cluster_counts.get(cor_key, 1) > 1  # True = correlated with another pick
         picks.append({
             "score": score, "q": q, "topic": topic,
             "yes_p": yes_p, "no_p": no_p,
             "side": side, "entry": entry, "tier": tier,
             "liq": liq, "v24": v24, "spread": spread, "chg": chg,
+            "chg1d": chg1d, "sharp": sharp,
+            "correlated": cor_flag, "cor_key": cor_key,
             "remaining": __import__('polymarket.fetcher', fromlist=['time_left']).time_left(m.get("endDateIso", "")),
             "slug": m.get("slug", ""),
             "endDateIso": m.get("endDateIso", ""),

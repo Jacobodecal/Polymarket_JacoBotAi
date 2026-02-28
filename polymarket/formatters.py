@@ -27,17 +27,29 @@ def format_pick(rank: int, p: dict, news_ctx: str = "") -> str:
     ce   = TIER_EMOJI.get(tier, "⚪")
     trend = "📈" if chg > 0.05 else ("📉" if chg < -0.05 else "➡️")
 
+    chg1d  = p.get("chg1d", 0)
+    sharp  = p.get("sharp", 0)
+    trend1d = "📈" if chg1d > 0.03 else ("📉" if chg1d < -0.03 else "➡️")
+    sharp_tag = ""
+    if sharp >= 1.5:   sharp_tag = " 🐳 WHALE"
+    elif sharp >= 0.8: sharp_tag = " 🔥 HOT"
+    elif sharp >= 0.4: sharp_tag = " ⚡ ACTIVE"
+
     lines = [
         f"*{rank}.* {te} {ce} *{q[:65]}{'…' if len(q) > 65 else ''}*",
         f"   ➡ BUY *{side}* @ {entry:.3f} → +*{net_ret:.0f}%* net (+${net_profit:.1f}) after 2% fee",
-        f"   💵 Bet: *${suggested:.0f}* | {tier} conviction | Spread: {p['spread']*100:.1f}%",
-        f"   💧 Liq: {fmt_vol(p['liq'])} | Vol 24h: {fmt_vol(p['v24'])} | {trend} 7d: {p['chg']*100:+.0f}% | ⏱ {p['remaining']}",
+        f"   💵 Bet: *${suggested:.0f}* | {tier} conviction | Spread: {p['spread']*100:.1f}%{sharp_tag}",
+        f"   💧 Liq: {fmt_vol(p['liq'])} | Vol 24h: {fmt_vol(p['v24'])} | {trend} 7d: {p['chg']*100:+.0f}% | {trend1d} 24h: {chg1d*100:+.0f}% | ⏱ {p['remaining']}",
     ]
 
     # Reasoning
     reason = _build_reasoning(p)
     if reason:
         lines.append(f"   🧠 _{reason}_")
+
+    # Correlation warning
+    if p.get("correlated"):
+        lines.append(f"   ⚠️ _Correlated bet — multiple picks on same event ({p.get('cor_key','?')}). Concentration risk._")
 
     # Resolution info
     res_info = analyze_market({
@@ -62,9 +74,11 @@ def format_pick(rank: int, p: dict, news_ctx: str = "") -> str:
 def _build_reasoning(p: dict) -> str:
     """Generate human-readable reasoning for a pick."""
     parts = []
-    entry = p["entry"]
-    chg   = p["chg"]
-    liq   = p["liq"]
+    entry  = p["entry"]
+    chg    = p["chg"]
+    chg1d  = p.get("chg1d", 0)
+    liq    = p["liq"]
+    sharp  = p.get("sharp", 0)
 
     # Probability context
     if entry >= 0.85:
@@ -78,8 +92,19 @@ def _build_reasoning(p: dict) -> str:
     else:
         parts.append(f"moonshot ({entry*100:.0f}%) — small bet, high multiplier")
 
-    # Momentum
-    if chg >= 0.20:
+    # Sharp money (new signal)
+    if sharp >= 1.5:
+        parts.append(f"🐳 whale activity (vol/liq={sharp:.1f}x) — informed money is moving this")
+    elif sharp >= 0.8:
+        parts.append(f"heavy trading activity (vol/liq={sharp:.1f}x) — market is being priced by sharps")
+    elif sharp >= 0.4:
+        parts.append(f"active market (vol/liq={sharp:.1f}x)")
+
+    # 24h momentum (prioritize recency over 7d for short-term bets)
+    if abs(chg1d) >= 0.08:
+        direction = "surging" if chg1d > 0 else "dropping"
+        parts.append(f"{direction} today ({chg1d*100:+.0f}% in 24h)")
+    elif chg >= 0.20:
         parts.append(f"smart money piling in (+{chg*100:.0f}% in 7d)")
     elif chg >= 0.10:
         parts.append(f"positive momentum (+{chg*100:.0f}% this week)")
